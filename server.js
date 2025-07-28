@@ -4,19 +4,21 @@ const ffmpeg = require("fluent-ffmpeg");
 const path = require("path");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
+const cors = require("cors");
 
 const app = express();
+app.use(cors());
 app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 3000;
 
-// Ensure videos folder exists
+// Ensure 'videos' folder exists
 const videosDir = path.join(__dirname, "videos");
 if (!fs.existsSync(videosDir)) {
   fs.mkdirSync(videosDir);
 }
 
-// Serve static files from videos folder
+// Serve videos statically
 app.use("/videos", express.static(videosDir));
 
 app.post("/generate-video", (req, res) => {
@@ -29,7 +31,6 @@ app.post("/generate-video", (req, res) => {
   const id = uuidv4();
   const outputFile = path.join(videosDir, `output_${id}.mp4`);
 
-  // Sanitize text to avoid FFmpeg issues
   const safeText = Text.replace(/[:'"]/g, "");
 
   ffmpeg()
@@ -50,7 +51,7 @@ app.post("/generate-video", (req, res) => {
     })
     .on("error", (err) => {
       console.error("FFmpeg error:", err);
-      res.status(500).json({ error: "Video generation failed" });
+      res.status(500).json({ error: "Video generation failed", details: err.message });
     })
     .run();
 });
