@@ -1,61 +1,65 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const ffmpeg = require("fluent-ffmpeg");
-const path = require("path");
-const fs = require("fs");
-const { v4: uuidv4 } = require("uuid");
-const cors = require("cors");
+const express = require('express');
+const ffmpeg = require('fluent-ffmpeg');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
-app.use(cors());
-app.use(bodyParser.json());
-
 const PORT = process.env.PORT || 3000;
 
-// Ensure 'videos' folder exists
-const videosDir = path.join(__dirname, "videos");
-if (!fs.existsSync(videosDir)) {
-  fs.mkdirSync(videosDir);
-}
+app.use(cors());
+app.use(express.json());
 
-// Serve videos statically
-app.use("/videos", express.static(videosDir));
+app.get('/', (req, res) => {
+  res.send('🎥 Video Generator API is running!');
+});
 
-app.post("/generate-video", (req, res) => {
-  const { background, Text } = req.body;
+app.post('/generate', async (req, res) => {
+  const text = req.body.text || 'Hello World';
+  const outputPath = path.join(__dirname, 'output.mp4');
 
-  if (!background || !Text) {
-    return res.status(400).json({ error: "background and Text are required" });
+  try {
+    // Delete existing output if exists
+    if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+
+    ffmpeg()
+      .input('color=c=black:s=1280x720:d=5') // 5 seconds black video
+      .inputFormat('lavfi')
+      .videoFilters({
+        filter: 'drawtext',
+        options: {
+          fontfile: '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+          text: text,
+          fontcolor: 'white',
+          fontsize: 60,
+          x: '(w-text_w)/2',
+          y: '(h-text_h)/2',
+          box: 1,
+          boxcolor: 'black@0.5',
+          boxborderw: 10
+        }
+      })
+      .outputOptions('-movflags frag_keyframe+empty_moov') // for streamable MP4
+      .output(outputPath)
+      .on('end', () => {
+        res.download(outputPath);
+      })
+      .on('error', (err) => {
+        console.error('FFmpeg error:', err);
+        res.status(500).json({
+          error: 'Video generation failed',
+          details: err.message
+        });
+      })
+      .run();
+  } catch (err) {
+    res.status(500).json({
+      error: 'Unexpected error occurred',
+      details: err.message
+    });
   }
-
-  const id = uuidv4();
-  const outputFile = path.join(videosDir, `output_${id}.mp4`);
-
-  const safeText = Text.replace(/[:'"]/g, "");
-
-  ffmpeg()
-    .input(`color=${background}:s=720x1280:d=5`)
-    .inputFormat("lavfi")
-    .videoCodec("libx264")
-    .outputOptions([
-      "-pix_fmt yuv420p",
-      `-vf drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='${safeText}':fontcolor=white:fontsize=60:x=(w-text_w)/2:y=(h-text_h)/2`
-    ])
-    .duration(5)
-    .output(outputFile)
-    .on("end", () => {
-      const host = req.protocol + "://" + req.get("host");
-      res.json({
-        video_url: `${host}/videos/output_${id}.mp4`
-      });
-    })
-    .on("error", (err) => {
-      console.error("FFmpeg error:", err);
-      res.status(500).json({ error: "Video generation failed", details: err.message });
-    })
-    .run();
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server is running at http://localhost:${PORT}`);
 });
